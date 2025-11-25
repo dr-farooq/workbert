@@ -79,8 +79,7 @@ export default function RostersPage() {
   }, [rosters, searchQuery]);
 
   const handleRosterClick = (rosterId: string) => {
-    // In future this will go to detail page
-    // router.push(`/dashboard/${orgId}/rosters/${rosterId}`);
+    router.push(`/dashboard/${orgId}/rosters/${rosterId}`);
   };
 
   return (
@@ -135,10 +134,12 @@ export default function RostersPage() {
                 </button>
               </div>
 
-              <Button size="sm" className="gap-2 h-9 bg-[#00C853] hover:bg-[#00b54b] text-white">
-                <PlusCircle className="h-4 w-4" />
-                New Roster
-              </Button>
+              <Link href={`/dashboard/${orgId}/rosters/new`}>
+                <Button size="sm" className="gap-2 h-9 bg-[#00C853] hover:bg-[#00b54b] text-white">
+                  <PlusCircle className="h-4 w-4" />
+                  New Roster
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
@@ -175,10 +176,12 @@ export default function RostersPage() {
             <p className="text-sm text-gray-500 mb-6 max-w-md">
               Create your first roster to start scheduling shifts for your team
             </p>
-            <Button className="gap-2 bg-[#00C853] hover:bg-[#00b54b] text-white">
-              <PlusCircle className="h-4 w-4" />
-              Create Your First Roster
-            </Button>
+            <Link href={`/dashboard/${orgId}/rosters/new`}>
+              <Button className="gap-2 bg-[#00C853] hover:bg-[#00b54b] text-white">
+                <PlusCircle className="h-4 w-4" />
+                Create Your First Roster
+              </Button>
+            </Link>
           </div>
         )}
 
