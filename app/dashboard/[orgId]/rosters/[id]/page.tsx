@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft,
@@ -13,9 +12,7 @@ import {
   Edit2,
   X,
   Check,
-  Settings2,
-  Users,
-  Zap,
+  Settings,
   MessageSquare,
   Clock,
   Sparkles,
@@ -23,6 +20,11 @@ import {
   ChevronRight,
   ChevronDown,
   Calendar,
+  MoreVertical,
+  AlertTriangle,
+  Users,
+  Search,
+  GripVertical,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -39,9 +41,24 @@ import {
   ResourceCalendarResource,
 } from "@/components/resource-calendar";
 
-import { ShiftType, ShiftTypesDialog } from "@/components/shift-types-dialog";
+import {
+  RosterSettings,
+  RosterSettingsDialog,
+  ShiftType,
+  Member,
+} from "@/components/roster-settings-dialog";
 
-import { Member, MembersDialog } from "@/components/members-dialog";
+import {
+  RuleOverride,
+  DraftOverridesDialog,
+} from "@/components/draft-overrides-dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { RosterConsole, ConsoleProblem } from "@/components/roster-console";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 // Mock Data
 const MOCK_DRAFTS = [
@@ -74,17 +91,77 @@ const MOCK_ROSTER = {
   durationType: "QUARTERLY",
 };
 
+const INITIAL_ROSTER_SETTINGS: RosterSettings = {
+  name: "Emergency Department - Q1 2025",
+  startDate: "2025-01-01",
+  endDate: "2025-03-31",
+  durationType: "QUARTERLY",
+  rules: [
+    {
+      id: "rule-1",
+      type: "max_hours_week",
+      label: "Max Hours per Week",
+      value: 50,
+      unit: "hours",
+      severity: "error",
+      scope: "all",
+    },
+    {
+      id: "rule-2",
+      type: "max_hours_fortnight",
+      label: "Max Hours per Fortnight",
+      value: 100,
+      unit: "hours",
+      severity: "error",
+      scope: "all",
+    },
+    {
+      id: "rule-3",
+      type: "min_rest_hours",
+      label: "Min Rest Between Shifts",
+      value: 10,
+      unit: "hours",
+      severity: "warning",
+      scope: "all",
+    },
+  ],
+};
+
+// Mock overrides per draft
+const MOCK_DRAFT_OVERRIDES: Record<string, RuleOverride[]> = {
+  "3": [
+    {
+      id: "override-1",
+      ruleId: "rule-1",
+      ruleName: "Max Hours per Week",
+      staffId: "m1",
+      staffName: "Dr. Sarah Connor",
+      originalValue: 50,
+      overrideValue: 55,
+      unit: "hours",
+      reason: "Short-staffed, approved by HOD",
+      createdBy: "user",
+    },
+    {
+      id: "override-2",
+      ruleId: "rule-3",
+      ruleName: "Min Rest Between Shifts",
+      staffId: "m2",
+      staffName: "Dr. Kyle Reese",
+      originalValue: 10,
+      overrideValue: 8,
+      unit: "hours",
+      reason: "Only way to achieve full coverage",
+      createdBy: "ai",
+    },
+  ],
+};
+
 const MOCK_VARIANTS = [
   { id: "v1", name: "Week 1", dateRange: "Jan 1 - Jan 7", isActive: true },
   { id: "v2", name: "Week 2", dateRange: "Jan 8 - Jan 14", isActive: false },
   { id: "v3", name: "Week 3", dateRange: "Jan 15 - Jan 21", isActive: false },
   { id: "v4", name: "Week 4", dateRange: "Jan 22 - Jan 28", isActive: false },
-];
-
-const MOCK_RESOURCES: ResourceCalendarResource[] = [
-  { id: "t1", title: "D-AM", subtitle: "07:00 - 15:00", color: "#3b82f6" },
-  { id: "t2", title: "D-PM", subtitle: "14:00 - 22:00", color: "#10b981" },
-  { id: "t3", title: "D-ND", subtitle: "21:00 - 08:00", color: "#8b5cf6" },
 ];
 
 const INITIAL_SHIFT_TYPES: ShiftType[] = [
@@ -117,7 +194,7 @@ const INITIAL_SHIFT_TYPES: ShiftType[] = [
   },
 ];
 
-const MOCK_EVENTS: ResourceCalendarEvent[] = [
+const INITIAL_EVENTS: ResourceCalendarEvent[] = [
   {
     id: "e1",
     resourceId: "t1",
@@ -125,6 +202,8 @@ const MOCK_EVENTS: ResourceCalendarEvent[] = [
     date: new Date(), // Today
     backgroundColor: "#3b82f6",
     textColor: "#ffffff",
+    hasWarning: true,
+    warningMessage: "Exceeds max 50 hours/week (55 hours)",
   },
   {
     id: "e2",
@@ -132,6 +211,20 @@ const MOCK_EVENTS: ResourceCalendarEvent[] = [
     title: "Kyle Reese",
     date: new Date(), // Today
     backgroundColor: "#10b981",
+    textColor: "#ffffff",
+    hasWarning: true,
+    warningMessage: "Less than 10 hours rest between shifts (8 hours)",
+  },
+  {
+    id: "e3",
+    resourceId: "t1",
+    title: "John Connor",
+    date: (() => {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow;
+    })(),
+    backgroundColor: "#3b82f6",
     textColor: "#ffffff",
   },
 ];
@@ -142,13 +235,21 @@ export default function RosterDetailPage() {
   const orgId = params?.orgId as string;
 
   const [activeDraftId, setActiveDraftId] = useState<string>("3");
-  const [showAiChat, setShowAiChat] = useState(false);
+  const [rightSidebarTab, setRightSidebarTab] = useState<
+    "chat" | "members" | null
+  >(null);
   const [aiInput, setAiInput] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState<string>("v1");
-  const [showShiftTypes, setShowShiftTypes] = useState(false);
-  const [showMembers, setShowMembers] = useState(false);
+  const [showRosterSettings, setShowRosterSettings] = useState(false);
+  const [showDraftOverrides, setShowDraftOverrides] = useState(false);
+  const [rosterSettings, setRosterSettings] = useState<RosterSettings>(
+    INITIAL_ROSTER_SETTINGS
+  );
+  const [draftOverrides, setDraftOverrides] =
+    useState<Record<string, RuleOverride[]>>(MOCK_DRAFT_OVERRIDES);
   const [shiftTypes, setShiftTypes] =
     useState<ShiftType[]>(INITIAL_SHIFT_TYPES);
+  const [events, setEvents] = useState<ResourceCalendarEvent[]>(INITIAL_EVENTS);
   const [members, setMembers] = useState<Member[]>([
     {
       id: "m1",
@@ -168,7 +269,19 @@ export default function RosterDetailPage() {
       maxShiftsPerWeek: 4,
       tags: [],
     },
+    {
+      id: "m3",
+      name: "Dr. John Connor",
+      email: "john@hospital.com",
+      role: "Doctor",
+      fte: 1.0,
+      maxShiftsPerWeek: 5,
+      tags: [],
+    },
   ]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [consoleExpanded, setConsoleExpanded] = useState(false);
+  const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
 
   // Convert shift types to calendar resources
   const calendarResources: ResourceCalendarResource[] = shiftTypes.map((t) => ({
@@ -177,6 +290,18 @@ export default function RosterDetailPage() {
     subtitle: `${t.startTime} - ${t.endTime}`,
     color: t.color,
   }));
+
+  // Derive problems from events
+  const problems: ConsoleProblem[] = events
+    .filter((e) => e.hasWarning)
+    .map((e) => ({
+      id: `prob-${e.id}`,
+      severity: "warning", // defaulting to warning as per mock data
+      message: e.warningMessage || "Unknown warning",
+      resource: calendarResources.find((r) => r.id === e.resourceId)?.title,
+      date: e.date.toLocaleDateString(),
+      source: "Rule Engine",
+    }));
 
   const currentVariant = MOCK_VARIANTS.find((v) => v.id === selectedVariantId);
   const currentIndex = MOCK_VARIANTS.findIndex(
@@ -195,12 +320,12 @@ export default function RosterDetailPage() {
     }
   };
 
-  // Cmd+I keyboard shortcut to toggle AI chat
+  // Cmd+I keyboard shortcut to toggle Sidebar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
         e.preventDefault();
-        setShowAiChat((prev) => !prev);
+        setRightSidebarTab((prev) => (prev ? null : "chat"));
       }
     };
 
@@ -218,17 +343,79 @@ export default function RosterDetailPage() {
     );
   };
 
+  const handleCellDrop = (
+    e: React.DragEvent,
+    date: Date,
+    resourceId: string
+  ) => {
+    try {
+      const memberData = JSON.parse(e.dataTransfer.getData("application/json"));
+      if (!memberData || !memberData.id) return;
+
+      const resource = calendarResources.find((r) => r.id === resourceId);
+
+      const newEvent: ResourceCalendarEvent = {
+        id: `e-${Date.now()}`,
+        resourceId,
+        title: memberData.name.split(" ").slice(-1)[0], // Last name or just name
+        date: date,
+        backgroundColor: resource?.color || "#3b82f6",
+        textColor: "#ffffff",
+      };
+
+      setEvents((prev) => [...prev, newEvent]);
+    } catch (err) {
+      console.error("Failed to parse drop data", err);
+    }
+  };
+
+  const handleEventDrop = (
+    e: React.DragEvent,
+    event: ResourceCalendarEvent,
+    date: Date,
+    resourceId: string
+  ) => {
+    // Remove the old event and create a new one at the new location
+    setEvents((prev) => {
+      const filtered = prev.filter((ev) => ev.id !== event.id);
+      const resource = calendarResources.find((r) => r.id === resourceId);
+      const newEvent: ResourceCalendarEvent = {
+        ...event,
+        id: event.id, // Keep the same ID
+        resourceId,
+        date: date,
+        backgroundColor: resource?.color || event.backgroundColor,
+      };
+      return [...filtered, newEvent];
+    });
+  };
+
   const handlePublish = () => {
     if (confirm("Publish this roster? Staff will be notified.")) {
       alert("Roster published!");
     }
   };
 
-  const handleDelete = () => {
+  const handleDeleteRoster = () => {
     if (confirm("Delete this roster? This cannot be undone.")) {
       router.push(`/dashboard/${orgId}/rosters`);
     }
   };
+
+  // Drag and Drop Handler
+  const handleDragStart = (
+    e: React.DragEvent<HTMLDivElement>,
+    member: Member
+  ) => {
+    e.dataTransfer.setData("application/json", JSON.stringify(member));
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
+  const filteredMembers = members.filter(
+    (m) =>
+      m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
+      m.role.toLowerCase().includes(memberSearch.toLowerCase())
+  );
 
   return (
     <div className="flex flex-1 h-[calc(100vh-4rem)] overflow-hidden bg-gray-50 text-gray-900">
@@ -335,19 +522,10 @@ export default function RosterDetailPage() {
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1.5 border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                onClick={() => setShowMembers(true)}
+                onClick={() => setShowRosterSettings(true)}
               >
-                <Users className="h-3.5 w-3.5" />
-                Members
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                onClick={() => setShowShiftTypes(true)}
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                Shift Types
+                <Settings className="h-3.5 w-3.5" />
+                Settings
               </Button>
               <div className="h-6 w-px bg-gray-200" />
               <Button
@@ -358,23 +536,15 @@ export default function RosterDetailPage() {
                 <Send className="h-3.5 w-3.5" />
                 Publish
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0 border-gray-200 text-gray-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200"
-                onClick={handleDelete}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
             </div>
           </div>
         </div>
 
-        {/* Three-column layout: Draft History | Calendar | AI Chat */}
+        {/* Three-column layout: Draft History | Calendar | Right Sidebar */}
         <div
           className="flex-1 grid overflow-hidden min-h-0 transition-[grid-template-columns] duration-300"
           style={{
-            gridTemplateColumns: showAiChat
+            gridTemplateColumns: rightSidebarTab
               ? "14rem minmax(0, 1fr) 20rem"
               : "14rem minmax(0, 1fr)",
           }}
@@ -399,13 +569,14 @@ export default function RosterDetailPage() {
                     (new Date().getTime() - draft.createdAt.getTime()) /
                       (1000 * 60 * 60 * 24)
                   );
+                  const overrides = draftOverrides[draft.id] || [];
+                  const hasOverrides = overrides.length > 0;
 
                   return (
-                    <button
+                    <div
                       key={draft.id}
-                      onClick={() => setActiveDraftId(draft.id)}
                       className={cn(
-                        "w-full p-2 rounded-md text-left transition-all group relative",
+                        "w-full p-2 rounded-md transition-all group relative",
                         isActive
                           ? "bg-blue-50 border border-blue-200"
                           : "bg-white border border-transparent hover:bg-gray-50 hover:border-gray-200"
@@ -416,52 +587,123 @@ export default function RosterDetailPage() {
                         <div className="absolute -left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-blue-500 rounded-r" />
                       )}
 
-                      <div className="flex items-start justify-between gap-1.5">
-                        <div className="flex-1 min-w-0 pr-6">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <p
-                              className={cn(
-                                "text-xs font-medium truncate",
-                                isActive ? "text-blue-700" : "text-gray-900"
-                              )}
-                            >
-                              {draft.name}
-                            </p>
+                      <div
+                        onClick={() => setActiveDraftId(draft.id)}
+                        className="cursor-pointer"
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex-1 min-w-0 pr-6">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <p
+                                className={cn(
+                                  "text-xs font-medium truncate",
+                                  isActive ? "text-blue-700" : "text-gray-900"
+                                )}
+                              >
+                                {draft.name}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                              <Clock className="h-2.5 w-2.5" />
+                              <span className="text-xs">
+                                {daysDiff === 0
+                                  ? "Today"
+                                  : daysDiff === 1
+                                    ? "Yesterday"
+                                    : `${daysDiff}d ago`}
+                              </span>
+                            </div>
+                            {hasOverrides && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <AlertTriangle className="h-2.5 w-2.5 text-yellow-600" />
+                                <span className="text-xs text-yellow-700 font-medium">
+                                  {overrides.length} override
+                                  {overrides.length !== 1 ? "s" : ""}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center gap-1 text-xs text-gray-500">
-                            <Clock className="h-2.5 w-2.5" />
-                            <span className="text-xs">
-                              {daysDiff === 0
-                                ? "Today"
-                                : daysDiff === 1
-                                  ? "Yesterday"
-                                  : `${daysDiff}d ago`}
-                            </span>
-                          </div>
-                        </div>
 
-                        {/* Draft number badge */}
-                        <div
-                          className={cn(
-                            "shrink-0 h-5 w-5 rounded-full flex items-center justify-center text-xs font-semibold",
-                            isActive
-                              ? "bg-blue-100 text-blue-600"
-                              : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
-                          )}
-                        >
-                          {MOCK_DRAFTS.length - index}
+                          {/* Active Badge */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isActive && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] h-4 px-1.5 py-0 leading-none tracking-wide uppercase bg-blue-100 text-blue-600 border-0"
+                              >
+                                Active
+                              </Badge>
+                            )}
+
+                            {/* Menu Toggle - Always visible */}
+                            <div className="relative h-5 w-5 flex items-center justify-center">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="end"
+                                  className="w-48"
+                                >
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveDraftId(draft.id);
+                                      setShowDraftOverrides(true);
+                                    }}
+                                    className="cursor-pointer"
+                                  >
+                                    <Settings className="h-3.5 w-3.5 mr-2" />
+                                    Draft Overrides
+                                    {hasOverrides && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="ml-auto text-xs bg-yellow-50 text-yellow-700"
+                                      >
+                                        {overrides.length}
+                                      </Badge>
+                                    )}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      alert("Rename draft coming soon!");
+                                    }}
+                                    className="cursor-pointer"
+                                  >
+                                    <Edit2 className="h-3.5 w-3.5 mr-2" />
+                                    Rename
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (
+                                        confirm(
+                                          `Delete draft "${draft.name}"? This cannot be undone.`
+                                        )
+                                      ) {
+                                        alert("Delete draft coming soon!");
+                                      }
+                                    }}
+                                    className="cursor-pointer text-red-600 focus:text-red-600"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </div>
                         </div>
                       </div>
-
-                      {isActive && (
-                        <Badge
-                          variant="secondary"
-                          className="absolute top-2 right-2 text-[10px] h-4 px-1.5 py-0 leading-none tracking-wide uppercase bg-blue-100 text-blue-600 border-0"
-                        >
-                          Active
-                        </Badge>
-                      )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -486,119 +728,314 @@ export default function RosterDetailPage() {
             <div className="flex-1 min-h-0 p-4 overflow-hidden">
               <ResourceCalendar
                 resources={calendarResources}
-                events={MOCK_EVENTS}
+                events={events}
                 view="week"
                 onEventClick={handleEventClick}
                 onCellClick={handleCellClick}
+                onCellDrop={handleCellDrop}
+                onEventDrop={handleEventDrop}
               />
             </div>
           </div>
 
-          <ShiftTypesDialog
-            open={showShiftTypes}
-            onOpenChange={setShowShiftTypes}
+          <RosterSettingsDialog
+            open={showRosterSettings}
+            onOpenChange={setShowRosterSettings}
+            settings={rosterSettings}
+            onUpdate={setRosterSettings}
             shiftTypes={shiftTypes}
-            onUpdate={setShiftTypes}
-          />
-
-          <MembersDialog
-            open={showMembers}
-            onOpenChange={setShowMembers}
+            onUpdateShiftTypes={setShiftTypes}
             members={members}
-            onUpdate={setMembers}
+            onUpdateMembers={setMembers}
+            onDeleteRoster={handleDeleteRoster}
           />
 
-          {/* AI Chat - Right Sidebar */}
-          {showAiChat && (
-            <div className="w-80 border-l border-gray-200 bg-white flex flex-col min-h-0">
-              <div className="px-3 py-2.5 border-b border-gray-200 shrink-0">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <Sparkles className="h-3 w-3 text-purple-600" />
-                    <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
-                      AI Assistant
-                    </h3>
+          <DraftOverridesDialog
+            open={showDraftOverrides}
+            onOpenChange={setShowDraftOverrides}
+            draftName={
+              MOCK_DRAFTS.find((d) => d.id === activeDraftId)?.name || "Draft"
+            }
+            rosterRules={rosterSettings.rules}
+            overrides={draftOverrides[activeDraftId] || []}
+            members={members}
+            onUpdate={(newOverrides) => {
+              setDraftOverrides({
+                ...draftOverrides,
+                [activeDraftId]: newOverrides,
+              });
+            }}
+          />
+
+          {/* Right Sidebar - Tabs & Content */}
+          {rightSidebarTab && (
+            <div className="w-80 border-l border-gray-200 bg-white flex flex-col min-h-0 shadow-sm z-10">
+              {/* Sidebar Tabs */}
+              <div className="flex border-b border-gray-200">
+                <button
+                  onClick={() => setRightSidebarTab("chat")}
+                  className={cn(
+                    "flex-1 py-2.5 text-xs font-medium text-center transition-colors border-b-2",
+                    rightSidebarTab === "chat"
+                      ? "border-purple-600 text-purple-600 bg-purple-50/50"
+                      : "border-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  )}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    AI Assistant
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0 text-gray-400 hover:text-gray-900"
-                    onClick={() => setShowAiChat(false)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-                <p className="text-xs text-gray-500">Natural language edits</p>
+                </button>
+                <button
+                  onClick={() => setRightSidebarTab("members")}
+                  className={cn(
+                    "flex-1 py-2.5 text-xs font-medium text-center transition-colors border-b-2",
+                    rightSidebarTab === "members"
+                      ? "border-blue-600 text-blue-600 bg-blue-50/50"
+                      : "border-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                  )}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <Users className="h-3.5 w-3.5" />
+                    Members
+                  </div>
+                </button>
+                <button
+                  onClick={() => setRightSidebarTab(null)}
+                  className="px-2.5 border-l border-gray-200 text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              {/* Chat Messages Area */}
-              <div className="flex-1 p-3 overflow-y-auto custom-scrollbar">
-                <div className="space-y-4">
-                  {/* Welcome Message */}
-                  <div className="flex gap-3">
-                    <div className="shrink-0 h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center">
-                      <Sparkles className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs text-gray-500 mb-1">AI Assistant</p>
-                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                        <p className="text-sm text-gray-700 leading-relaxed">
-                          Hi! I can help you modify your roster. Try commands
-                          like:
-                        </p>
-                        <ul className="mt-2 space-y-1 text-xs text-gray-500">
-                          <li>• "Assign John to night shifts next week"</li>
-                          <li>• "Add a day shift on Monday"</li>
-                          <li>• "Check for scheduling conflicts"</li>
-                          <li>• "Remove all shifts on the 15th"</li>
-                        </ul>
+              {/* Chat Content */}
+              {rightSidebarTab === "chat" && (
+                <div className="flex flex-col flex-1 overflow-hidden">
+                  <div className="flex-1 p-3 overflow-y-auto custom-scrollbar">
+                    <div className="space-y-4">
+                      {/* Welcome Message */}
+                      <div className="flex gap-3">
+                        <div className="shrink-0 h-8 w-8 rounded-full bg-purple-50 flex items-center justify-center">
+                          <Sparkles className="h-4 w-4 text-purple-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-xs text-gray-500 mb-1">
+                            AI Assistant
+                          </p>
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                            <p className="text-sm text-gray-700 leading-relaxed">
+                              Hi! I can help you modify your roster. Try
+                              commands like:
+                            </p>
+                            <ul className="mt-2 space-y-1 text-xs text-gray-500">
+                              <li>• "Assign John to night shifts next week"</li>
+                              <li>• "Add a day shift on Monday"</li>
+                              <li>• "Check for scheduling conflicts"</li>
+                              <li>• "Remove all shifts on the 15th"</li>
+                            </ul>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Chat Input */}
-              <div className="p-3 border-t border-gray-200 shrink-0">
-                <div className="relative">
-                  <Input
-                    placeholder="Ask AI to modify roster..."
-                    value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        alert("AI integration coming soon!");
-                        setAiInput("");
-                      }
-                    }}
-                    className="bg-white border-gray-300 text-xs h-8 pr-9 text-gray-900 placeholder:text-gray-500 focus:ring-purple-500 focus:border-purple-500"
-                  />
-                  <Button
-                    size="sm"
-                    className="absolute right-0.5 top-0.5 h-7 w-7 p-0 bg-transparent hover:bg-gray-100 text-gray-400 hover:text-gray-900"
-                    onClick={() => {
-                      alert("AI integration coming soon!");
-                      setAiInput("");
-                    }}
-                  >
-                    <Send className="h-3 w-3" />
-                  </Button>
+                  {/* Chat Input */}
+                  <div className="p-3 border-t border-gray-200 shrink-0">
+                    <div className="relative">
+                      <Input
+                        placeholder="Ask AI to modify roster..."
+                        value={aiInput}
+                        onChange={(e) => setAiInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            alert("AI integration coming soon!");
+                            setAiInput("");
+                          }
+                        }}
+                        className="bg-white border-gray-300 text-xs h-8 pr-9 text-gray-900 placeholder:text-gray-500 focus:ring-purple-500 focus:border-purple-500"
+                      />
+                      <Button
+                        size="sm"
+                        className="absolute right-0.5 top-0.5 h-7 w-7 p-0 bg-transparent hover:bg-gray-100 text-gray-400 hover:text-gray-900"
+                        onClick={() => {
+                          alert("AI integration coming soon!");
+                          setAiInput("");
+                        }}
+                      >
+                        <Send className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1.5 text-center">
+                      <kbd className="px-1 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200 font-sans">
+                        Enter
+                      </kbd>{" "}
+                      to send •{" "}
+                      <kbd className="px-1 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200 font-sans">
+                        ⌘I
+                      </kbd>{" "}
+                      to toggle
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-gray-500 mt-1.5 text-center">
-                  <kbd className="px-1 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200 font-sans">
-                    Enter
-                  </kbd>{" "}
-                  to send •{" "}
-                  <kbd className="px-1 py-0.5 text-xs rounded bg-gray-100 text-gray-600 border border-gray-200 font-sans">
-                    ⌘I
-                  </kbd>{" "}
-                  to close
-                </p>
-              </div>
+              )}
+
+              {/* Members Content */}
+              {rightSidebarTab === "members" && (
+                <div className="flex flex-col flex-1 overflow-hidden">
+                  <div className="p-3 border-b border-gray-200">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                      <Input
+                        placeholder="Filter members..."
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        className="pl-8 h-8 text-xs bg-white"
+                      />
+                    </div>
+                  </div>
+                  <ScrollArea className="flex-1">
+                    <div className="p-2 space-y-1">
+                      {filteredMembers.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-gray-500">
+                          No members found
+                        </div>
+                      ) : (
+                        filteredMembers.map((member) => {
+                          const isExpanded = expandedMembers.has(member.id);
+                          // Mock shift preferences - in real app this would come from member data
+                          const shiftPreferences = [
+                            { day: "Monday", preference: "preferred" },
+                            { day: "Tuesday", preference: "preferred" },
+                            { day: "Wednesday", preference: "avoid" },
+                            { day: "Thursday", preference: "neutral" },
+                            { day: "Friday", preference: "preferred" },
+                            { day: "Saturday", preference: "avoid" },
+                            { day: "Sunday", preference: "avoid" },
+                          ];
+
+                          return (
+                            <Collapsible
+                              key={member.id}
+                              open={isExpanded}
+                              onOpenChange={(open) => {
+                                setExpandedMembers((prev) => {
+                                  const next = new Set(prev);
+                                  if (open) {
+                                    next.add(member.id);
+                                  } else {
+                                    next.delete(member.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                            >
+                              <div className="bg-white border border-transparent hover:border-gray-200 rounded-md transition-all">
+                                <div
+                                  draggable
+                                  onDragStart={(e) => handleDragStart(e, member)}
+                                  className="group flex items-center gap-3 p-2 rounded-md hover:bg-gray-50 cursor-grab active:cursor-grabbing transition-all"
+                                >
+                                  <GripVertical className="h-4 w-4 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className="text-xs font-medium text-gray-900 truncate">
+                                        {member.name}
+                                      </span>
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] h-4 px-1 py-0 bg-gray-100 text-gray-500 border-0 font-normal"
+                                      >
+                                        {member.role}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-blue-500 rounded-full"
+                                          style={{
+                                            width: `${(Math.random() * 100).toFixed(0)}%`,
+                                          }} // Mock progress
+                                        />
+                                      </div>
+                                      <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                                        3/5 shifts
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <CollapsibleTrigger asChild>
+                                    <button
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="shrink-0 p-1 hover:bg-gray-200 rounded transition-colors"
+                                    >
+                                      <ChevronDown
+                                        className={cn(
+                                          "h-3.5 w-3.5 text-gray-400 transition-transform",
+                                          isExpanded && "transform rotate-180"
+                                        )}
+                                      />
+                                    </button>
+                                  </CollapsibleTrigger>
+                                </div>
+                                <CollapsibleContent>
+                                  <div className="px-2 pb-2 pt-1 border-t border-gray-100">
+                                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+                                      Shift Preferences
+                                    </div>
+                                    <div className="space-y-1">
+                                      {shiftPreferences.map((pref) => (
+                                        <div
+                                          key={pref.day}
+                                          className="flex items-center justify-between text-xs"
+                                        >
+                                          <span className="text-gray-600">
+                                            {pref.day}
+                                          </span>
+                                          <Badge
+                                            variant="secondary"
+                                            className={cn(
+                                              "text-[10px] h-4 px-1.5 border-0",
+                                              pref.preference === "preferred" &&
+                                                "bg-green-100 text-green-700",
+                                              pref.preference === "avoid" &&
+                                                "bg-red-100 text-red-700",
+                                              pref.preference === "neutral" &&
+                                                "bg-gray-100 text-gray-600"
+                                            )}
+                                          >
+                                            {pref.preference === "preferred"
+                                              ? "Preferred"
+                                              : pref.preference === "avoid"
+                                                ? "Avoid"
+                                                : "Neutral"}
+                                          </Badge>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </CollapsibleContent>
+                              </div>
+                            </Collapsible>
+                          );
+                        })
+                      )}
+                    </div>
+                  </ScrollArea>
+                  <div className="p-3 border-t border-gray-200 bg-gray-50">
+                    <p className="text-[10px] text-gray-500 text-center">
+                      Drag names onto the calendar to assign
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
+        <RosterConsole
+          problems={problems}
+          isExpanded={consoleExpanded}
+          onToggleExpand={() => setConsoleExpanded(!consoleExpanded)}
+        />
       </div>
     </div>
   );

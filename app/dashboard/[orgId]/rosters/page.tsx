@@ -135,10 +135,10 @@ export default function RostersPage() {
               </div>
 
               <Link href={`/dashboard/${orgId}/rosters/new`}>
-                <Button size="sm" className="gap-2 h-9 bg-[#00C853] hover:bg-[#00b54b] text-white">
-                  <PlusCircle className="h-4 w-4" />
-                  New Roster
-                </Button>
+              <Button size="sm" className="gap-2 h-9 bg-[#00C853] hover:bg-[#00b54b] text-white">
+                <PlusCircle className="h-4 w-4" />
+                New Roster
+              </Button>
               </Link>
             </div>
           </div>
@@ -177,10 +177,10 @@ export default function RostersPage() {
               Create your first roster to start scheduling shifts for your team
             </p>
             <Link href={`/dashboard/${orgId}/rosters/new`}>
-              <Button className="gap-2 bg-[#00C853] hover:bg-[#00b54b] text-white">
-                <PlusCircle className="h-4 w-4" />
-                Create Your First Roster
-              </Button>
+            <Button className="gap-2 bg-[#00C853] hover:bg-[#00b54b] text-white">
+              <PlusCircle className="h-4 w-4" />
+              Create Your First Roster
+            </Button>
             </Link>
           </div>
         )}

@@ -17,6 +17,8 @@ export interface ResourceCalendarEvent {
   date: Date;
   backgroundColor?: string;
   textColor?: string;
+  hasWarning?: boolean;
+  warningMessage?: string;
   data?: any;
 }
 
@@ -26,7 +28,13 @@ interface ResourceCalendarProps {
   view?: "week" | "month";
   onEventClick?: (event: ResourceCalendarEvent) => void;
   onCellClick?: (date: Date, resourceId: string) => void;
-  onEventDrop?: (eventId: string, newDate: Date, newResourceId: string) => void;
+  onCellDrop?: (e: React.DragEvent, date: Date, resourceId: string) => void;
+  onEventDrop?: (
+    e: React.DragEvent,
+    event: ResourceCalendarEvent,
+    date: Date,
+    resourceId: string
+  ) => void;
 }
 
 export function ResourceCalendar({
@@ -35,6 +43,8 @@ export function ResourceCalendar({
   view = "week",
   onEventClick,
   onCellClick,
+  onCellDrop,
+  onEventDrop,
 }: ResourceCalendarProps) {
   // Generate dates based on view (mocking current week/month)
   const dates = React.useMemo(() => {
@@ -116,19 +126,64 @@ export function ResourceCalendar({
                         key={dateKey}
                         className="p-1 relative hover:bg-gray-50 transition-colors cursor-pointer"
                         onClick={() => onCellClick?.(date, resource.id)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          // Check effectAllowed to determine if it's a move (event) or copy (member)
+                          if (e.dataTransfer.effectAllowed === "move") {
+                            e.dataTransfer.dropEffect = "move";
+                          } else {
+                            e.dataTransfer.dropEffect = "copy";
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          try {
+                            const data = JSON.parse(
+                              e.dataTransfer.getData("application/json")
+                            );
+                            if (data.id && data.resourceId) {
+                              // It's an event being moved
+                              const event = events.find((ev) => ev.id === data.id);
+                              if (event && onEventDrop) {
+                                onEventDrop(e, event, date, resource.id);
+                              }
+                            } else {
+                              // It's a member being dropped
+                              onCellDrop?.(e, date, resource.id);
+                            }
+                          } catch (err) {
+                            // Fallback to regular drop
+                            onCellDrop?.(e, date, resource.id);
+                          }
+                        }}
                       >
                         {cellEvents.map((event) => (
                           <div
                             key={event.id}
-                            className="p-1.5 rounded text-xs font-medium mb-1 shadow-sm truncate cursor-pointer hover:opacity-90 border border-black/5"
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData(
+                                "application/json",
+                                JSON.stringify(event)
+                              );
+                              e.dataTransfer.effectAllowed = "move";
+                              e.stopPropagation();
+                            }}
+                            className="p-1.5 rounded text-xs font-medium mb-1 shadow-sm truncate cursor-move hover:opacity-90 border border-black/5 active:opacity-70"
                             style={{
-                              backgroundColor: event.backgroundColor || "#3b82f6",
+                              backgroundColor:
+                                event.backgroundColor || "#3b82f6",
                               color: event.textColor || "#ffffff",
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
                               onEventClick?.(event);
                             }}
+                            title={
+                              event.hasWarning
+                                ? event.warningMessage
+                                : undefined
+                            }
                           >
                             {event.title}
                           </div>
@@ -141,7 +196,8 @@ export function ResourceCalendar({
             ))}
             {resources.length === 0 && (
               <div className="p-8 text-center text-gray-500 text-sm">
-                No shift templates defined yet. Add templates to see the calendar.
+                No shift templates defined yet. Add templates to see the
+                calendar.
               </div>
             )}
           </div>
@@ -150,4 +206,3 @@ export function ResourceCalendar({
     </div>
   );
 }
-
